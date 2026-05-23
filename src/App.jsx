@@ -385,6 +385,8 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [formError, setFormError] = useState("");
   const [isSavingRule, setIsSavingRule] = useState(false);
+  const [deleteConfirmRule, setDeleteConfirmRule] = useState(null);
+  const [isDeletingRule, setIsDeletingRule] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminTab, setAdminTab] = useState("규칙 관리");
   const [lastBackupAt, setLastBackupAt] = useState("");
@@ -793,24 +795,53 @@ function App() {
     );
   };
 
-  const handleDeleteRule = async (ruleId) => {
-    if (!isAdmin) return;
+  const openDeleteConfirm = (rule) => {
+    if (!isAdmin || !rule) return;
+    setDeleteConfirmRule(rule);
+  };
+
+  const closeDeleteConfirm = () => {
+    if (isDeletingRule) return;
+    setDeleteConfirmRule(null);
+  };
+
+  const handleDeleteRule = async () => {
+    if (!isAdmin || !deleteConfirmRule) return;
+
+    const ruleId = deleteConfirmRule.id;
+    setIsDeletingRule(true);
 
     if (USE_SUPABASE && supabase) {
       try {
         const { error } = await supabase.from("rules").delete().eq("id", ruleId);
         if (error) throw error;
+
         await loadRules(supabase, true);
+
+        if (selectedId === ruleId) {
+          setSelectedId(null);
+        }
+
+        setDeleteConfirmRule(null);
         setSyncMessage("규칙 삭제 완료");
       } catch (error) {
         console.error(error);
         setSyncMessage("규칙 삭제 실패");
+      } finally {
+        setIsDeletingRule(false);
       }
+
       return;
     }
 
     setRules((prev) => prev.filter((rule) => rule.id !== ruleId));
-    if (selectedId === ruleId) setSelectedId(null);
+
+    if (selectedId === ruleId) {
+      setSelectedId(null);
+    }
+
+    setDeleteConfirmRule(null);
+    setIsDeletingRule(false);
   };
 
   const handleSaveSettings = async (event) => {
@@ -948,6 +979,48 @@ function App() {
           </div>
         )}
       </header>
+
+      {deleteConfirmRule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-red-600">삭제 확인</p>
+                <h2 className="mt-1 text-2xl font-black">정말 삭제하시겠습니까?</h2>
+              </div>
+              <button
+                onClick={closeDeleteConfirm}
+                className="rounded-xl p-2 hover:bg-slate-100"
+                aria-label="삭제 확인 창 닫기"
+                disabled={isDeletingRule}
+              >
+                <X />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-red-50 p-4 text-sm leading-6 text-red-800">
+              <p className="font-bold">삭제할 문서</p>
+              <p className="mt-1">{deleteConfirmRule.title}</p>
+              <p className="mt-3 text-xs">
+                삭제하면 일반 관리자 화면에서 바로 복구할 수 없습니다. 필요한 경우 먼저 운영 관리에서 백업을 내려받아 주세요.
+              </p>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <Button type="button" variant="outline" onClick={closeDeleteConfirm} disabled={isDeletingRule} className="rounded-xl">
+                취소
+              </Button>
+              <Button type="button" variant="destructive" onClick={handleDeleteRule} disabled={isDeletingRule} className="rounded-xl">
+                {isDeletingRule ? "삭제 중..." : "한번 더 삭제"}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {loginOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
@@ -1191,7 +1264,7 @@ function App() {
                       <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => openEditForm(selectedRule)} className="gap-2 rounded-xl"><Edit3 size={16} /> 수정</Button>
                         <Button variant="outline" onClick={() => handlePublishToggle(selectedRule.id)} className="rounded-xl">{selectedRule.status === "비공개" ? "공개 전환" : "비공개 전환"}</Button>
-                        <Button variant="destructive" onClick={() => handleDeleteRule(selectedRule.id)} className="rounded-xl">삭제</Button>
+                        <Button variant="destructive" onClick={() => openDeleteConfirm(selectedRule)} className="rounded-xl">삭제</Button>
                       </div>
                     )}
                   </div>

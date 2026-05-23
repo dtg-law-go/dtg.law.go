@@ -373,6 +373,8 @@ function App() {
   const [rules, setRules] = useState(() => getStoredValue(RULES_STORAGE_KEY, INITIAL_RULES));
   const [settings, setSettings] = useState(() => normalizeSettings(getStoredValue(SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS)));
   const [settingsForm, setSettingsForm] = useState(() => normalizeSettings(getStoredValue(SETTINGS_STORAGE_KEY, DEFAULT_SETTINGS)));
+  const [settingsReady, setSettingsReady] = useState(!USE_SUPABASE);
+  const [settingsSaveError, setSettingsSaveError] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("전체");
   const [selectedId, setSelectedId] = useState(null);
@@ -534,16 +536,34 @@ function App() {
   }
 
   async function loadSettings(client = supabase) {
-    if (!USE_SUPABASE || !client) return;
+    if (!USE_SUPABASE || !client) {
+      setSettingsReady(true);
+      return;
+    }
+
+    setSettingsSaveError("");
 
     try {
       const { data, error } = await client.from("site_settings").select("*").eq("id", "main").maybeSingle();
       if (error) throw error;
-      const nextSettings = normalizeSettingsFromDb(data);
-      setSettings(nextSettings);
-      setSettingsForm(nextSettings);
+
+      // site_settings 행이 실제로 있을 때만 폼을 DB 값으로 교체한다.
+      // DB 조회 실패나 행 없음 상태에서 기본값을 저장해 기존 위젯 문구를 덮어쓰는 일을 막기 위한 안전장치다.
+      if (data) {
+        const nextSettings = normalizeSettingsFromDb(data);
+        setSettings(nextSettings);
+        setSettingsForm(nextSettings);
+        setSettingsReady(true);
+        return;
+      }
+
+      setSettingsReady(false);
+      setSettingsSaveError("site_settings의 main 설정을 찾지 못했습니다. Supabase에서 site_settings 테이블을 확인하세요.");
+      setSyncMessage("사이트 설정 없음: site_settings의 main 행을 확인하세요.");
     } catch (error) {
       console.error(error);
+      setSettingsReady(false);
+      setSettingsSaveError("사이트 설정을 불러오지 못해 위젯 저장을 잠시 막았습니다. 새로고침하거나 Supabase 설정을 확인하세요.");
       setSyncMessage("사이트 설정 불러오기 실패: site_settings 테이블을 확인하세요.");
     }
   }
@@ -848,24 +868,38 @@ function App() {
     event.preventDefault();
     if (!isAdmin) return;
 
+    setSettingsSaveError("");
+
+    if (USE_SUPABASE && !settingsReady) {
+      setSettingsSaveError("Supabase에서 기존 위젯 설정을 아직 불러오지 못했습니다. 새로고침 후 다시 저장해 주세요.");
+      setSyncMessage("위젯 저장 차단: 기존 설정을 먼저 불러와야 합니다.");
+      return;
+    }
+
+    const currentSettings = normalizeSettings(settings);
     const nextSettings = normalizeSettings({
+      ...currentSettings,
       announcementEnabled: Boolean(settingsForm.announcementEnabled),
-      announcementText: settingsForm.announcementText.trim() || DEFAULT_SETTINGS.announcementText,
-      badgeText: settingsForm.badgeText.trim() || DEFAULT_SETTINGS.badgeText,
-      heroTitle: settingsForm.heroTitle.trim() || DEFAULT_SETTINGS.heroTitle,
-      heroDescription: settingsForm.heroDescription.trim() || DEFAULT_SETTINGS.heroDescription,
-      noticeTitle: settingsForm.noticeTitle.trim() || DEFAULT_SETTINGS.noticeTitle,
-      noticeText: settingsForm.noticeText.trim() || DEFAULT_SETTINGS.noticeText,
+      announcementText: settingsForm.announcementText.trim() || currentSettings.announcementText,
+      badgeText: settingsForm.badgeText.trim() || currentSettings.badgeText,
+      heroTitle: settingsForm.heroTitle.trim() || currentSettings.heroTitle,
+      heroDescription: settingsForm.heroDescription.trim() || currentSettings.heroDescription,
+      noticeTitle: settingsForm.noticeTitle.trim() || currentSettings.noticeTitle,
+      noticeText: settingsForm.noticeText.trim() || currentSettings.noticeText,
     });
 
     if (USE_SUPABASE && supabase) {
       try {
         const { error } = await supabase.from("site_settings").upsert(normalizeSettingsToDb(nextSettings));
         if (error) throw error;
+        setSettings(nextSettings);
+        setSettingsForm(nextSettings);
+        setSettingsReady(true);
         await loadSettings(supabase);
         setSyncMessage("사이트 위젯 설정 저장 완료");
       } catch (error) {
         console.error(error);
+        setSettingsSaveError(`사이트 설정 저장 실패: ${error?.message || "Supabase 연결 또는 권한을 확인하세요."}`);
         setSyncMessage("사이트 설정 저장 실패");
       }
       return;
@@ -873,21 +907,31 @@ function App() {
 
     setSettings(nextSettings);
     setSettingsForm(nextSettings);
+    setSettingsReady(true);
   };
 
   const handleResetSettings = async () => {
-    setSettingsForm(DEFAULT_SETTINGS);
     if (!isAdmin) return;
+    const ok = window.confirm("위젯과 공지사항 문구를 기본값으로 되돌릴까요? 현재 작성한 문구가 바뀔 수 있습니다.");
+    if (!ok) return;
+
+    setSettingsSaveError("");
+    setSettingsForm(DEFAULT_SETTINGS);
+
     if (USE_SUPABASE && supabase) {
       try {
         const { error } = await supabase.from("site_settings").upsert(normalizeSettingsToDb(DEFAULT_SETTINGS));
         if (error) throw error;
+        setSettingsReady(true);
         await loadSettings(supabase);
+        setSyncMessage("위젯 설정을 기본값으로 복원했습니다.");
       } catch (error) {
         console.error(error);
+        setSettingsSaveError(`기본값 복원 실패: ${error?.message || "Supabase 연결 또는 권한을 확인하세요."}`);
       }
     } else {
       setSettings(DEFAULT_SETTINGS);
+      setSettingsReady(true);
     }
   };
 
@@ -1185,6 +1229,14 @@ function App() {
                         <div className="mb-1 flex items-center gap-2 font-bold text-slate-800"><Settings size={15} /> 사이트 위젯 설정</div>
                         저장하면 Supabase site_settings 테이블의 main 설정이 변경됩니다. 상단 공지사항 바도 여기에서 수정합니다.
                       </div>
+                      {settingsSaveError && (
+                        <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{settingsSaveError}</p>
+                      )}
+                      {USE_SUPABASE && !settingsReady && !settingsSaveError && (
+                        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                          기존 위젯 설정을 불러오는 중입니다. 불러오기 전에는 저장 버튼이 비활성화됩니다.
+                        </p>
+                      )}
                       <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
                         <input
                           type="checkbox"
@@ -1207,7 +1259,7 @@ function App() {
                       <input value={settingsForm.noticeTitle} onChange={(event) => setSettingsForm({ ...settingsForm, noticeTitle: event.target.value })} placeholder="운영 안내 제목" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-500" />
                       <textarea value={settingsForm.noticeText} onChange={(event) => setSettingsForm({ ...settingsForm, noticeText: event.target.value })} placeholder="운영 안내 내용" rows={4} className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-500" />
                       <div className="grid grid-cols-2 gap-2">
-                        <Button type="submit" className="gap-2 rounded-xl"><Save size={16} /> 위젯 저장</Button>
+                        <Button type="submit" disabled={USE_SUPABASE && !settingsReady} className="gap-2 rounded-xl"><Save size={16} /> 위젯 저장</Button>
                         <Button type="button" variant="outline" onClick={handleResetSettings} className="rounded-xl">기본값 복원</Button>
                       </div>
                     </form>

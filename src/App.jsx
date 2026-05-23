@@ -155,7 +155,7 @@ const INITIAL_RULES = [
   },
 ];
 
-const CATEGORIES = ["전체", "대의원회", "학생자치회", "감사위원회", "학사 건의", "선거", "시설 건의", "토론 사항", "관습", "학생 생활", "안건 발의", "기타"];
+const CATEGORIES = ["전체", "대의원회", "학생자치회", "감사위원회", "학사 건의", "선거", "시설 건의", "토론 사항", "관습", "학생 생활", "안건 발의", "문서 서식", "기타"];
 const ADMIN_TABS = ["규칙 관리", "위젯 관리", "운영 관리"];
 const STATUSES = ["검토 중", "게시됨", "비공개", "폐지됨"];
 
@@ -335,7 +335,7 @@ function runSelfTests() {
   console.assert(getVisibleRulesForUser(testRules, { isAdmin: true }).length === 2, "admin visibility test failed");
   console.assert(getVisibleRulesForUser(testRules, { isAdmin: true, category: "시설 건의" }).length === 1, "category filter test failed");
   console.assert(CATEGORIES.includes("대의원회") && CATEGORIES.includes("토론 사항") && CATEGORIES.includes("관습"), "new categories test failed");
-  console.assert(CATEGORIES.includes("학생 생활") && CATEGORIES.includes("안건 발의"), "added categories test failed");
+  console.assert(CATEGORIES.includes("학생 생활") && CATEGORIES.includes("안건 발의") && CATEGORIES.includes("문서 서식"), "added categories test failed");
   console.assert(getVisibleRulesForUser(testRules, { isAdmin: true, query: "비공개" }).length === 1, "query filter test failed");
   console.assert(normalizeSettingsFromDb(normalizeSettingsToDb({ heroTitle: "테스트" })).heroTitle === "테스트", "settings db normalization test failed");
   console.assert(normalizeSettings({ announcementEnabled: false }).announcementEnabled === false, "announcement enabled settings test failed");
